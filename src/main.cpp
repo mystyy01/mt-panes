@@ -1,119 +1,19 @@
 #define _XOPEN_SOURCE 600
 
-#include <pty.h>        // or <util.h> on BSD/macOS
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-#include <string>
-#include <iostream>
-#include <vector>
-#include <poll.h>
-#include <sys/wait.h>
-#include <cerrno>
 
-class Pane{
-public:
-    int term_id;
-    int pane_id;
-    Pane(int term_id){
-        if (term_id < 0){
-            return;
-        }
-    }
-};
+#include "terminal.hpp"
+#include "renderer.hpp"
 
-class Terminal{
-public:
-    pid_t pid;
-    int master_fd;
-    Terminal(pid_t _pid, int _master_fd){
-        pid = _pid;
-        master_fd = _master_fd;
-    };
-    void update_term(){
-        char buf[1024];
-        ssize_t n;
-        while ((n = read(master_fd, buf, sizeof(buf))) > 0) {
-            std::cout.write(buf, n);
-            std::cout.flush();
-        }
-    }
-    void send_cmd(std::string cmd){
-        write(master_fd, cmd.data(), cmd.size());
-    };
-    void close_term(){
-        close(master_fd);
-    }
-};
-
-class TerminalManager{
-public:
-    int new_terminal(){
-        // open a new terminal and append it to the terminal vector
-        int term_id = terminals.size() + 1;
-        int master_fd;
-        pid_t pid = forkpty(&master_fd, nullptr, nullptr, nullptr);
-        if (pid < 0) {
-            // fork failed
-            perror("forkpty");
-            return -1;
-        }
-        if (pid == 0) {
-            // child
-            execl("/bin/bash", "bash", (char*)nullptr);
-            perror("execl");
-            _exit(127);
-        }
-        Terminal new_term = Terminal(pid, master_fd);
-        terminals.push_back(new_term);
-        // new_term.update_term();
-        // dont close here 
-        return term_id;
-    };
-    Terminal get_term(int t_id){
-        // return terminal object from id
-        return terminals.at(t_id-1);
-    }
-private:
-    std::vector<Terminal> terminals;
-
-};  
 
 int main() {
-    // int master_fd;
-    // pid_t pid = forkpty(&master_fd, nullptr, nullptr, nullptr);
-    // if (pid < 0) {
-    //     perror("forkpty");
-    //     return 1;
-    // }
-
-    // if (pid == 0) {
-    //     // Child
-    //     execl("/bin/bash", "bash", (char*)nullptr);
-    //     perror("execl");
-    //     _exit(127);
-    // }
-
-    // // Parent
-    // std::string cmd = "echo hello from C++\n";
-    // write(master_fd, cmd.data(), cmd.size());
-
-    // char buf[1024];
-    // ssize_t n;
-    // while ((n = read(master_fd, buf, sizeof(buf))) > 0) {
-    //     std::cout.write(buf, n);
-    //     std::cout.flush();
-    // }
-
-    // close(master_fd);
-    // return 0;
-
     TerminalManager t_manager;
     int term_id = t_manager.new_terminal();
     if (term_id < 0){
         exit(-1);
     }
-    Terminal term = t_manager.get_term(term_id);
+
+    // render(t_manager.get_all_terminals());
+    Terminal term = *t_manager.get_term(term_id);
     int fd = term.master_fd;
     pid_t child_pid = term.pid;
 
