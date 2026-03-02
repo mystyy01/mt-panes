@@ -1,6 +1,15 @@
 #pragma once
 #include <stdexcept>
 #define MAX_WINDOWS 3
+typedef struct Vector2{
+    int x;
+    int y;
+} Vector2;
+
+enum class border_style{
+    ROUNDED,
+    SQUARE
+};
 
 class Pane{
 public:
@@ -13,4 +22,12 @@ public:
     }
 };
 
-void render();
+
+class Renderer{
+public:
+    Renderer();
+    void draw_terminal(Vector2 pos, Vector2 size, border_style style, int term_id);
+    void render();
+private:
+    Vector2 screen_size;
+};

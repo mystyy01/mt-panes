@@ -9,7 +9,7 @@ WARN := -Wall -Wextra -Wpedantic
 DEPFLAGS := -MMD -MP
 
 CXXFLAGS ?= $(CXXSTD) $(WARN)
-LDFLAGS ?=
+LDFLAGS ?= -lncurses
 
 SRC := $(wildcard $(SRC_DIR)/*.cpp)
 OBJ := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRC))

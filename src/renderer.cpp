@@ -1,8 +1,19 @@
 #include "renderer.hpp"
+#include <curses.h>
 
+Renderer::Renderer(){
+    initscr();
+    cbreak();
+    noecho();
+}
 
+void Renderer::draw_terminal(Vector2 pos, Vector2 size, border_style style, int term_id){
 
-
+}
+void Renderer::render(){
+    printw("hello world");
+    refresh();
+}
 
 // draw terminal
 // takes pos, border style, size, terminal object/id 
