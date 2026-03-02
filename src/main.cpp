@@ -60,7 +60,7 @@ public:
         }
         if (pid == 0) {
             // child
-            execl("/bin/zsh", "zsh", (char*)nullptr);
+            execl("/bin/bash", "bash", (char*)nullptr);
             perror("execl");
             _exit(127);
         }
