@@ -1,10 +1,9 @@
 #pragma once
+
 #include <stdexcept>
-#define MAX_WINDOWS 3
-typedef struct Vector2{
-    int x;
-    int y;
-} Vector2;
+#include "types.hpp"
+
+#define MAX_WINDOWS 3 //temp
 
 enum class border_style{
     ROUNDED,

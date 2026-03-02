@@ -3,13 +3,22 @@
 
 #include "terminal.hpp"
 #include "renderer.hpp"
+#include "tiling_manager.hpp"
 
 
 int main() {
     Renderer r;
+    TilingManager tile_m;
+    TerminalManager term_m;
+
+    int term_id = term_m.new_terminal();
+    if (term_id < 0){
+        return -1;
+    }
+    tile_m.new_pane(term_id);
     r.render();
     while(1){
-        
+
     }
 
     // TerminalManager t_manager;
