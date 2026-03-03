@@ -17,10 +17,12 @@ public:
   int get_focused_term_id() const;
   bool focus_next();
   bool focus_prev();
+  int close_focused_pane();
   const std::vector<std::unique_ptr<Node>> &get_nodes() const;
   std::vector<PaneLayout> compute_layout(Rect screen);
 
 private:
+  int next_id;
   std::vector<std::unique_ptr<Node>> nodes;
   int focused_node_id;
 };

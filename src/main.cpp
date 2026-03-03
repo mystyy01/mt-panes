@@ -1,4 +1,6 @@
 #include "types.hpp"
+#include <algorithm>
+#include <cctype>
 #include <curses.h>
 #include <string>
 #include <unordered_map>
@@ -7,36 +9,163 @@
 #include "terminal.hpp"
 #include "tiling_manager.hpp"
 
-// TODO: POLL TERMINAL RESIZE AND RE COMPUTE LAYOUT
+namespace {
+enum class UiMode { NORMAL, INSERT, COMMAND };
+
+std::string key_to_input_bytes(int ch) {
+  if (ch == ERR || ch == KEY_BTAB || ch == '\t') {
+    return {};
+  }
+  if (ch > 0 && ch < 27 && ch != 27) {
+    return std::string(1, static_cast<char>(ch));
+  }
+  switch (ch) {
+  case '\n':
+  case KEY_ENTER:
+    return "\r";
+  case KEY_BACKSPACE:
+  case '\b':
+  case 127:
+    return "\x7f";
+  case KEY_LEFT:
+    return "\x1b[D";
+  case KEY_RIGHT:
+    return "\x1b[C";
+  case KEY_UP:
+    return "\x1b[A";
+  case KEY_DOWN:
+    return "\x1b[B";
+  case KEY_HOME:
+    return "\x1b[H";
+  case KEY_END:
+    return "\x1b[F";
+  case KEY_DC:
+    return "\x1b[3~";
+  case KEY_NPAGE:
+    return "\x1b[6~";
+  case KEY_PPAGE:
+    return "\x1b[5~";
+  default:
+    if (ch >= 0 && ch <= 255 && std::isprint(ch)) {
+      return std::string(1, static_cast<char>(ch));
+    }
+    return {};
+  }
+}
+
+bool is_backspace(int ch) {
+  return ch == KEY_BACKSPACE || ch == 127 || ch == '\b';
+}
+} // namespace
 
 int main() {
   Renderer r;
   TilingManager tile_m;
   TerminalManager term_m;
 
-  int term_id = term_m.new_terminal();
-  int term_id2 = term_m.new_terminal();
-  if (term_id < 0 || term_id2 < 0) {
+  std::unordered_map<int, TerminalEmulator> emulators;
+  auto new_pane_with_terminal = [&]() -> bool {
+    const int term_id = term_m.new_terminal();
+    if (term_id < 0) {
+      return false;
+    }
+    tile_m.new_pane(term_id);
+    emulators.try_emplace(term_id);
+    return true;
+  };
+  auto close_focused = [&]() -> bool {
+    const int term_id = tile_m.close_focused_pane();
+    if (term_id < 0) {
+      return false;
+    }
+    (void)term_m.close_terminal(term_id);
+    emulators.erase(term_id);
+    return true;
+  };
+
+  if (!new_pane_with_terminal() || !new_pane_with_terminal()) {
     return -1;
   }
-  tile_m.new_pane(term_id);
-  tile_m.new_pane(term_id2);
 
   int h, w;
   getmaxyx(stdscr, h, w);
-  Rect screen_rect = {.x = 0, .y = 0, .w = w, .h = h};
+  Rect screen_rect{.x = 0, .y = 0, .w = w, .h = h};
   std::vector<PaneLayout> layouts = tile_m.compute_layout(screen_rect);
-  std::unordered_map<int, std::string> terminal_buffers;
 
   nodelay(stdscr, TRUE);
   keypad(stdscr, TRUE);
 
+  UiMode mode = UiMode::INSERT;
+  std::string command = ":";
+  std::string status = "-- INSERT --";
   bool running = true;
   while (running) {
-    int ch = getch();
-    if (ch == 'q' || ch == 'Q') {
-      running = false;
-      continue;
+    const int ch = getch();
+
+    if (ch == '\t') {
+      (void)tile_m.focus_next();
+    } else if (ch == KEY_BTAB) {
+      (void)tile_m.focus_prev();
+    } else if (mode == UiMode::COMMAND) {
+      if (ch == 27) {
+        mode = UiMode::NORMAL;
+        command = ":";
+        status = "-- NORMAL --";
+      } else if (ch == '\n' || ch == KEY_ENTER) {
+        if (command == ":q") {
+          running = false;
+        } else if (command == ":new") {
+          status = new_pane_with_terminal() ? "new pane" : "new pane failed";
+        } else if (command == ":close") {
+          status = close_focused() ? "closed pane" : "no pane to close";
+          if (tile_m.get_nodes().empty()) {
+            running = false;
+          }
+        } else {
+          status = "unknown command";
+        }
+        mode = UiMode::NORMAL;
+        command = ":";
+      } else if (is_backspace(ch)) {
+        if (command.size() > 1) {
+          command.pop_back();
+        }
+      } else if (ch >= 0 && ch <= 255 && std::isprint(ch)) {
+        command.push_back(static_cast<char>(ch));
+      }
+    } else if (mode == UiMode::INSERT) {
+      if (ch == 27) { // Ctrl+[ / ESC
+        mode = UiMode::NORMAL;
+        status = "-- NORMAL --";
+      } else {
+        const std::string input = key_to_input_bytes(ch);
+        if (!input.empty()) {
+          const int focused_term_id = tile_m.get_focused_term_id();
+          Terminal *term = term_m.get_term(focused_term_id);
+          if (term != nullptr) {
+            term->send_cmd(input);
+          }
+        }
+      }
+    } else { // NORMAL
+      if (ch == 'i' || ch == 'a') {
+        mode = UiMode::INSERT;
+        status = "-- INSERT --";
+      } else if (ch == ':') {
+        mode = UiMode::COMMAND;
+        command = ":";
+      } else if (ch == 'n') {
+        status = new_pane_with_terminal() ? "new pane" : "new pane failed";
+      } else if (ch == 'c') {
+        status = close_focused() ? "closed pane" : "no pane to close";
+        if (tile_m.get_nodes().empty()) {
+          running = false;
+        }
+      } else if (ch == 'h') {
+        (void)tile_m.focus_prev();
+      } else if (ch == 'l') {
+        (void)tile_m.focus_next();
+      }
     }
 
     int next_h, next_w;
@@ -45,133 +174,39 @@ int main() {
       h = next_h;
       w = next_w;
       screen_rect = Rect{.x = 0, .y = 0, .w = w, .h = h};
-      layouts = tile_m.compute_layout(screen_rect);
+    }
+    layouts = tile_m.compute_layout(screen_rect);
+    for (const auto &layout : layouts) {
+      const int inner_w = std::max(1, layout.rect.w - 2);
+      const int inner_h = std::max(1, layout.rect.h - 2);
+      emulators[layout.term_id].resize(inner_w, inner_h);
     }
 
     std::vector<Terminal> *terms = term_m.get_all_terminals();
-    for (size_t i = 0; i < terms->size(); ++i) {
-      std::string out = (*terms)[i].read_available();
+    for (Terminal &term : *terms) {
+      std::string out = term.read_available();
       if (out.empty()) {
         continue;
       }
-      const int current_term_id = static_cast<int>(i) + 1;
-      std::string &buffer = terminal_buffers[current_term_id];
-      buffer.append(out);
-      constexpr size_t kMaxBufferBytes = 100000;
-      if (buffer.size() > kMaxBufferBytes) {
-        buffer.erase(0, buffer.size() - kMaxBufferBytes);
-      }
+      emulators[term.term_id].feed(out);
     }
 
-    r.render(layouts, terminal_buffers);
+    r.render(layouts, emulators, mode == UiMode::INSERT);
+    if (h > 0 && w > 0) {
+      attrset(A_REVERSE);
+      mvhline(h - 1, 0, ' ', w);
+      std::string line;
+      if (mode == UiMode::COMMAND) {
+        line = command;
+      } else {
+        line = status;
+      }
+      mvaddnstr(h - 1, 0, line.c_str(), w);
+      attrset(A_NORMAL);
+      refresh();
+    }
     napms(16);
   }
 
-  // TerminalManager t_manager;
-  // int term_id = t_manager.new_terminal();
-  // if (term_id < 0){
-  //     exit(-1);
-  // }
-
-  // // render(t_manager.get_all_terminals());
-  // Terminal term = *t_manager.get_term(term_id);
-  // int fd = term.master_fd;
-  // pid_t child_pid = term.pid;
-
-  // termios orig{};
-  // bool raw_mode_enabled = false;
-  // if (isatty(STDIN_FILENO)) {
-  //     if (tcgetattr(STDIN_FILENO, &orig) == 0) {
-  //         termios raw = orig;
-  //         cfmakeraw(&raw);
-  //         if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0) {
-  //             raw_mode_enabled = true;
-  //         } else {
-  //             perror("tcsetattr");
-  //         }
-  //     } else {
-  //         perror("tcgetattr");
-  //     }
-  // }
-
-  // bool running = true;
-  // pollfd watch[2];
-  // watch[0] = {STDIN_FILENO, POLLIN, 0};
-  // watch[1] = {fd, POLLIN | POLLHUP | POLLERR, 0};
-  // while (running) {
-  //     int rc = poll(watch, 2, -1);
-  //     if (rc < 0) {
-  //         if (errno == EINTR) {
-  //             continue;
-  //         }
-  //         perror("poll");
-  //         break;
-  //     }
-
-  //     if (watch[0].revents & POLLIN) {
-  //         char inbuf[1024];
-  //         ssize_t n = read(STDIN_FILENO, inbuf, sizeof(inbuf));
-  //         if (n == 0) {
-  //             running = false;
-  //         } else if (n > 0) {
-  //             ssize_t total_written = 0;
-  //             while (total_written < n) {
-  //                 ssize_t written = write(fd, inbuf + total_written,
-  //                 static_cast<size_t>(n - total_written)); if (written <= 0)
-  //                 {
-  //                     if (written < 0 && errno == EINTR) {
-  //                         continue;
-  //                     }
-  //                     perror("write");
-  //                     running = false;
-  //                     break;
-  //                 }
-  //                 total_written += written;
-  //             }
-  //         } else if (errno != EINTR) {
-  //             perror("read stdin");
-  //             running = false;
-  //         }
-  //     }
-
-  //     if (watch[1].revents & POLLIN) {
-  //         char buf[1024];
-  //         ssize_t n = read(fd, buf, sizeof(buf));
-  //         if (n > 0) {
-  //             ssize_t total_written = 0;
-  //             while (total_written < n) {
-  //                 ssize_t written = write(STDOUT_FILENO, buf + total_written,
-  //                 static_cast<size_t>(n - total_written)); if (written <= 0)
-  //                 {
-  //                     if (written < 0 && errno == EINTR) {
-  //                         continue;
-  //                     }
-  //                     perror("write stdout");
-  //                     running = false;
-  //                     break;
-  //                 }
-  //                 total_written += written;
-  //             }
-  //         } else if (n == 0) {
-  //             running = false;
-  //         } else if (errno != EINTR) {
-  //             perror("read");
-  //             running = false;
-  //         }
-  //     }
-
-  //     if (watch[0].revents & (POLLHUP | POLLERR | POLLNVAL)) {
-  //         running = false;
-  //     }
-  //     if (watch[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
-  //         running = false;
-  //     }
-  // }
-
-  // if (raw_mode_enabled) {
-  //     tcsetattr(STDIN_FILENO, TCSANOW, &orig);
-  // }
-  // close(fd);
-  // waitpid(child_pid, nullptr, 0);
-  // return 0;
+  return 0;
 }

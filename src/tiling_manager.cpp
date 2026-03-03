@@ -1,14 +1,97 @@
 #include "tiling_manager.hpp"
 #include "types.hpp"
 
-TilingManager::TilingManager() : focused_node_id(-1) {}
+TilingManager::TilingManager() : next_id(0), focused_node_id(-1) {}
 
 int TilingManager::next_pane_id() const {
-  return static_cast<int>(nodes.size());
+  return next_id;
+}
+
+int TilingManager::get_focused_term_id() const {
+  for (const auto &node : nodes) {
+    if ((node->type == LEAF || node->type == ROOT) &&
+        node->node_id == focused_node_id) {
+      const auto *leaf = static_cast<const LeafNode *>(node.get());
+      return leaf->term_id;
+    }
+  }
+  return -1;
+}
+
+bool TilingManager::focus_next() {
+  std::vector<const LeafNode *> leaves;
+  leaves.reserve(nodes.size());
+  for (const auto &node : nodes) {
+    if (node->type == LEAF || node->type == ROOT) {
+      leaves.push_back(static_cast<const LeafNode *>(node.get()));
+    }
+  }
+  if (leaves.empty()) {
+    return false;
+  }
+  size_t current = 0;
+  for (size_t i = 0; i < leaves.size(); ++i) {
+    if (leaves[i]->node_id == focused_node_id) {
+      current = i;
+      break;
+    }
+  }
+  const size_t next = (current + 1) % leaves.size();
+  focused_node_id = leaves[next]->node_id;
+  return true;
+}
+
+bool TilingManager::focus_prev() {
+  std::vector<const LeafNode *> leaves;
+  leaves.reserve(nodes.size());
+  for (const auto &node : nodes) {
+    if (node->type == LEAF || node->type == ROOT) {
+      leaves.push_back(static_cast<const LeafNode *>(node.get()));
+    }
+  }
+  if (leaves.empty()) {
+    return false;
+  }
+  size_t current = 0;
+  for (size_t i = 0; i < leaves.size(); ++i) {
+    if (leaves[i]->node_id == focused_node_id) {
+      current = i;
+      break;
+    }
+  }
+  const size_t prev = (current + leaves.size() - 1) % leaves.size();
+  focused_node_id = leaves[prev]->node_id;
+  return true;
+}
+
+int TilingManager::close_focused_pane() {
+  for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+    Node *node = it->get();
+    if ((node->type != LEAF && node->type != ROOT) ||
+        node->node_id != focused_node_id) {
+      continue;
+    }
+    const int term_id = static_cast<LeafNode *>(node)->term_id;
+    nodes.erase(it);
+
+    focused_node_id = -1;
+    for (const auto &remaining : nodes) {
+      if (remaining->type == LEAF || remaining->type == ROOT) {
+        focused_node_id = remaining->node_id;
+        break;
+      }
+    }
+    if (nodes.size() == 1 && nodes[0]->type == LEAF) {
+      nodes[0]->type = ROOT;
+    }
+    return term_id;
+  }
+  return -1;
 }
 
 Node *TilingManager::new_pane(int term_id) {
   const int pane_id = next_pane_id();
+  ++next_id;
   const NodeType node_type = nodes.empty() ? ROOT : LEAF;
 
   auto new_leaf =

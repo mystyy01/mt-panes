@@ -1,10 +1,12 @@
 #include "terminal.hpp"
 #include <fcntl.h>
+#include <signal.h>
 
 
 // terminal class method bodies
 
-Terminal::Terminal(pid_t _pid, int _master_fd){
+Terminal::Terminal(int _term_id, pid_t _pid, int _master_fd){
+    term_id = _term_id;
     pid = _pid;
     master_fd = _master_fd;
 };
@@ -50,7 +52,7 @@ void Terminal::close_term(){
 
 int TerminalManager::new_terminal(){
     // open a new terminal and append it to the terminal vector
-    int term_id = terminals.size() + 1;
+    int term_id = next_term_id++;
     int master_fd;
     pid_t pid = forkpty(&master_fd, nullptr, nullptr, nullptr);
     if (pid < 0) {
@@ -68,15 +70,33 @@ int TerminalManager::new_terminal(){
     if (flags >= 0) {
         (void)fcntl(master_fd, F_SETFL, flags | O_NONBLOCK);
     }
-    Terminal new_term = Terminal(pid, master_fd);
+    Terminal new_term = Terminal(term_id, pid, master_fd);
     terminals.push_back(new_term);
     // new_term.update_term();
     // dont close here 
     return term_id;
 };
+bool TerminalManager::close_terminal(int t_id){
+    for (auto it = terminals.begin(); it != terminals.end(); ++it) {
+        if (it->term_id != t_id) {
+            continue;
+        }
+        kill(it->pid, SIGHUP);
+        it->close_term();
+        waitpid(it->pid, nullptr, WNOHANG);
+        terminals.erase(it);
+        return true;
+    }
+    return false;
+}
 Terminal* TerminalManager::get_term(int t_id){
     // return terminal object from id
-    return &terminals.at(t_id-1);
+    for (auto &term : terminals) {
+        if (term.term_id == t_id) {
+            return &term;
+        }
+    }
+    return nullptr;
 }
 std::vector<Terminal>* TerminalManager::get_all_terminals(){
     return &terminals;

@@ -1,8 +1,9 @@
 #pragma once
 
+#include "terminal_emulator.hpp"
 #include "types.hpp"
+#include <cstdint>
 #include <stdexcept>
-#include <string>
 #include <unordered_map>
 #include <vector>
 #define MAX_WINDOWS 3 // temp
@@ -27,10 +28,15 @@ public:
   void draw_terminal(Vector2 pos, Vector2 size, border_style style,
                      int term_id);
   void render(const std::vector<PaneLayout> &layout,
-              const std::unordered_map<int, std::string> &terminal_buffers);
+              const std::unordered_map<int, TerminalEmulator> &emulators,
+              bool show_insert_cursor);
 
 private:
   int screenx, screeny;
-  void draw_rect(Rect rect);
-  void draw_text(Rect rect, const std::string &text);
+  void draw_rect(Rect rect, bool focused);
+  void draw_emulator(Rect rect, const TerminalEmulator &emulator,
+                     bool show_cursor);
+  short ensure_color_pair(int fg, int bg);
+  std::unordered_map<int64_t, short> color_pairs;
+  short next_color_pair;
 };
