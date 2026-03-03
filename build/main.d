@@ -1,6 +1,6 @@
-build/main.o: src/main.cpp src/terminal.hpp src/renderer.hpp \
- src/types.hpp src/tiling_manager.hpp
-src/terminal.hpp:
+build/main.o: src/main.cpp src/renderer.hpp src/types.hpp \
+ src/terminal.hpp src/tiling_manager.hpp
 src/renderer.hpp:
 src/types.hpp:
+src/terminal.hpp:
 src/tiling_manager.hpp:
