@@ -34,3 +34,15 @@ public:
   int left_child_id;
   int right_child_id;
 };
+
+struct Rect {
+  int x, y;
+  int w, h;
+};
+
+struct PaneLayout {
+  int pane_id;
+  int term_id;
+  Rect rect;
+  bool focused;
+};

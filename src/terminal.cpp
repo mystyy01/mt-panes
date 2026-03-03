@@ -1,4 +1,5 @@
 #include "terminal.hpp"
+#include <fcntl.h>
 
 
 // terminal class method bodies
@@ -14,6 +15,28 @@ void Terminal::update_term(){
         std::cout.write(buf, n);
         std::cout.flush();
     }
+}
+std::string Terminal::read_available() {
+    std::string out;
+    char buf[4096];
+    while (true) {
+        ssize_t n = read(master_fd, buf, sizeof(buf));
+        if (n > 0) {
+            out.append(buf, static_cast<size_t>(n));
+            continue;
+        }
+        if (n == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            break;
+        }
+        break;
+    }
+    return out;
 }
 void Terminal::send_cmd(std::string cmd){
     write(master_fd, cmd.data(), cmd.size());
@@ -40,6 +63,10 @@ int TerminalManager::new_terminal(){
         execl("/bin/bash", "bash", (char*)nullptr);
         perror("execl");
         _exit(127);
+    }
+    int flags = fcntl(master_fd, F_GETFL, 0);
+    if (flags >= 0) {
+        (void)fcntl(master_fd, F_SETFL, flags | O_NONBLOCK);
     }
     Terminal new_term = Terminal(pid, master_fd);
     terminals.push_back(new_term);

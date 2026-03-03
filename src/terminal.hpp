@@ -18,6 +18,7 @@ public:
     int master_fd;
     Terminal(pid_t _pid, int _master_fd);
     void update_term();
+    std::string read_available();
     void send_cmd(std::string cmd);
     void close_term();
 };

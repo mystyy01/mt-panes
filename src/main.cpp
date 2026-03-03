@@ -1,8 +1,13 @@
-#define _XOPEN_SOURCE 600
+#include "types.hpp"
+#include <curses.h>
+#include <string>
+#include <unordered_map>
 
 #include "renderer.hpp"
 #include "terminal.hpp"
 #include "tiling_manager.hpp"
+
+// TODO: POLL TERMINAL RESIZE AND RE COMPUTE LAYOUT
 
 int main() {
   Renderer r;
@@ -10,12 +15,56 @@ int main() {
   TerminalManager term_m;
 
   int term_id = term_m.new_terminal();
-  if (term_id < 0) {
+  int term_id2 = term_m.new_terminal();
+  if (term_id < 0 || term_id2 < 0) {
     return -1;
   }
   tile_m.new_pane(term_id);
-  r.render(tile_m.get_nodes());
-  while (1) {
+  tile_m.new_pane(term_id2);
+
+  int h, w;
+  getmaxyx(stdscr, h, w);
+  Rect screen_rect = {.x = 0, .y = 0, .w = w, .h = h};
+  std::vector<PaneLayout> layouts = tile_m.compute_layout(screen_rect);
+  std::unordered_map<int, std::string> terminal_buffers;
+
+  nodelay(stdscr, TRUE);
+  keypad(stdscr, TRUE);
+
+  bool running = true;
+  while (running) {
+    int ch = getch();
+    if (ch == 'q' || ch == 'Q') {
+      running = false;
+      continue;
+    }
+
+    int next_h, next_w;
+    getmaxyx(stdscr, next_h, next_w);
+    if (next_h != h || next_w != w) {
+      h = next_h;
+      w = next_w;
+      screen_rect = Rect{.x = 0, .y = 0, .w = w, .h = h};
+      layouts = tile_m.compute_layout(screen_rect);
+    }
+
+    std::vector<Terminal> *terms = term_m.get_all_terminals();
+    for (size_t i = 0; i < terms->size(); ++i) {
+      std::string out = (*terms)[i].read_available();
+      if (out.empty()) {
+        continue;
+      }
+      const int current_term_id = static_cast<int>(i) + 1;
+      std::string &buffer = terminal_buffers[current_term_id];
+      buffer.append(out);
+      constexpr size_t kMaxBufferBytes = 100000;
+      if (buffer.size() > kMaxBufferBytes) {
+        buffer.erase(0, buffer.size() - kMaxBufferBytes);
+      }
+    }
+
+    r.render(layouts, terminal_buffers);
+    napms(16);
   }
 
   // TerminalManager t_manager;

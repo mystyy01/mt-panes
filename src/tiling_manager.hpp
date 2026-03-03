@@ -14,7 +14,11 @@ public:
   TilingManager();
   Node *new_pane(int term_id);
   int next_pane_id() const;
-  std::vector<std::unique_ptr<Node>> get_nodes();
+  int get_focused_term_id() const;
+  bool focus_next();
+  bool focus_prev();
+  const std::vector<std::unique_ptr<Node>> &get_nodes() const;
+  std::vector<PaneLayout> compute_layout(Rect screen);
 
 private:
   std::vector<std::unique_ptr<Node>> nodes;
