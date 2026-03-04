@@ -1,6 +1,5 @@
 #include "types.hpp"
 #include <algorithm>
-#include <cctype>
 #include <clocale>
 #include <cstdlib>
 #include <curses.h>
@@ -12,17 +11,15 @@
 #include "tiling_manager.hpp"
 
 namespace {
-enum class UiMode { NORMAL, INSERT, COMMAND };
+constexpr int kPrefixKey = 1; // Ctrl-A
 
 std::string key_to_input_bytes(int ch) {
-  if (ch == ERR || ch == KEY_BTAB || ch == '\t') {
+  if (ch == ERR) {
     return {};
   }
-  if (ch > 0 && ch < 27 && ch != 27) {
-    return std::string(1, static_cast<char>(ch));
-  }
   switch (ch) {
-  case '\n':
+  case '\r':
+  case '\n': // KEY_ENTER may come through as '\n' on some terminals
   case KEY_ENTER:
     return "\r";
   case KEY_BACKSPACE:
@@ -47,16 +44,14 @@ std::string key_to_input_bytes(int ch) {
     return "\x1b[6~";
   case KEY_PPAGE:
     return "\x1b[5~";
+  case KEY_BTAB:
+    return "\x1b[Z";
   default:
-    if (ch >= 0 && ch <= 255 && std::isprint(ch)) {
+    if (ch >= 0 && ch <= 255) {
       return std::string(1, static_cast<char>(ch));
     }
     return {};
   }
-}
-
-bool is_backspace(int ch) {
-  return ch == KEY_BACKSPACE || ch == 127 || ch == '\b';
 }
 } // namespace
 
@@ -102,78 +97,49 @@ int main() {
   std::vector<PaneLayout> layouts = tile_m.compute_layout(screen_rect);
 
   nodelay(stdscr, TRUE);
-  keypad(stdscr, TRUE);
+  keypad(stdscr, FALSE);
+  set_escdelay(25);
 
-  UiMode mode = UiMode::INSERT;
-  std::string command = ":";
-  std::string status = "-- INSERT --";
+  auto send_to_focused = [&](const std::string &bytes) {
+    if (bytes.empty()) {
+      return;
+    }
+    const int focused_term_id = tile_m.get_focused_term_id();
+    Terminal *term = term_m.get_term(focused_term_id);
+    if (term != nullptr) {
+      term->send_cmd(bytes);
+    }
+  };
+
+  bool prefix_pending = false;
   bool running = true;
   while (running) {
     const int ch = getch();
 
-    if (ch == '\t') {
-      (void)tile_m.focus_next();
-    } else if (ch == KEY_BTAB) {
-      (void)tile_m.focus_prev();
-    } else if (mode == UiMode::COMMAND) {
-      if (ch == 27) {
-        mode = UiMode::NORMAL;
-        command = ":";
-        status = "-- NORMAL --";
-      } else if (ch == '\n' || ch == KEY_ENTER) {
-        if (command == ":q") {
-          running = false;
-        } else if (command == ":new") {
-          status = new_pane_with_terminal() ? "new pane" : "new pane failed";
-        } else if (command == ":close") {
-          status = close_focused() ? "closed pane" : "no pane to close";
+    if (ch != ERR) {
+      if (prefix_pending) {
+        prefix_pending = false;
+        if (ch == kPrefixKey) {
+          send_to_focused(std::string(1, static_cast<char>(kPrefixKey)));
+        } else if (ch == 'n') {
+          (void)new_pane_with_terminal();
+        } else if (ch == 'c') {
+          (void)close_focused();
           if (tile_m.get_nodes().empty()) {
             running = false;
           }
-        } else {
-          status = "unknown command";
-        }
-        mode = UiMode::NORMAL;
-        command = ":";
-      } else if (is_backspace(ch)) {
-        if (command.size() > 1) {
-          command.pop_back();
-        }
-      } else if (ch >= 0 && ch <= 255 && std::isprint(ch)) {
-        command.push_back(static_cast<char>(ch));
-      }
-    } else if (mode == UiMode::INSERT) {
-      if (ch == 27) { // Ctrl+[ / ESC
-        mode = UiMode::NORMAL;
-        status = "-- NORMAL --";
-      } else {
-        const std::string input = key_to_input_bytes(ch);
-        if (!input.empty()) {
-          const int focused_term_id = tile_m.get_focused_term_id();
-          Terminal *term = term_m.get_term(focused_term_id);
-          if (term != nullptr) {
-            term->send_cmd(input);
-          }
-        }
-      }
-    } else { // NORMAL
-      if (ch == 'i' || ch == 'a') {
-        mode = UiMode::INSERT;
-        status = "-- INSERT --";
-      } else if (ch == ':') {
-        mode = UiMode::COMMAND;
-        command = ":";
-      } else if (ch == 'n') {
-        status = new_pane_with_terminal() ? "new pane" : "new pane failed";
-      } else if (ch == 'c') {
-        status = close_focused() ? "closed pane" : "no pane to close";
-        if (tile_m.get_nodes().empty()) {
+        } else if (ch == 'h') {
+          (void)tile_m.focus_prev();
+        } else if (ch == 'l' || ch == '\t') {
+          (void)tile_m.focus_next();
+        } else if (ch == 'q') {
           running = false;
         }
-      } else if (ch == 'h') {
-        (void)tile_m.focus_prev();
-      } else if (ch == 'l') {
-        (void)tile_m.focus_next();
+      } else if (ch == kPrefixKey) {
+        prefix_pending = true;
+      } else {
+        const std::string input = key_to_input_bytes(ch);
+        send_to_focused(input);
       }
     }
 
@@ -195,6 +161,15 @@ int main() {
       }
     }
 
+    const std::vector<int> exited_terms = term_m.collect_exited_terminals();
+    for (int term_id : exited_terms) {
+      (void)tile_m.close_pane_by_term_id(term_id);
+      emulators.erase(term_id);
+    }
+    if (tile_m.get_nodes().empty()) {
+      running = false;
+    }
+
     std::vector<Terminal> *terms = term_m.get_all_terminals();
     for (Terminal &term : *terms) {
       std::string out = term.read_available();
@@ -209,16 +184,14 @@ int main() {
       }
     }
 
-    r.render(layouts, emulators, mode == UiMode::INSERT);
+    r.render(layouts, emulators, true);
     if (h > 0 && w > 0) {
       attrset(A_REVERSE);
       mvhline(h - 1, 0, ' ', w);
-      std::string line;
-      if (mode == UiMode::COMMAND) {
-        line = command;
-      } else {
-        line = status;
-      }
+      const std::string line = prefix_pending
+                                   ? "PREFIX (Ctrl-a): n new | c close | h/l "
+                                     "move | q quit | Ctrl-a send Ctrl-a"
+                                   : "-- INSERT --";
       mvaddnstr(h - 1, 0, line.c_str(), w);
       attrset(A_NORMAL);
       refresh();

@@ -29,6 +29,7 @@ class TerminalManager{
 public:
     int new_terminal();
     bool close_terminal(int t_id);
+    std::vector<int> collect_exited_terminals();
     Terminal *get_term(int t_id);
     std::vector<Terminal> *get_all_terminals();
 private:

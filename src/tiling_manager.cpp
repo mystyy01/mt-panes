@@ -1,5 +1,7 @@
 #include "tiling_manager.hpp"
 #include "types.hpp"
+#include <algorithm>
+#include <functional>
 
 TilingManager::TilingManager() : next_id(0), focused_node_id(-1) {}
 
@@ -89,6 +91,40 @@ int TilingManager::close_focused_pane() {
   return -1;
 }
 
+bool TilingManager::close_pane_by_term_id(int term_id) {
+  for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+    Node *node = it->get();
+    if (node->type != LEAF && node->type != ROOT) {
+      continue;
+    }
+    if (static_cast<LeafNode *>(node)->term_id != term_id) {
+      continue;
+    }
+
+    const bool was_focused = (node->node_id == focused_node_id);
+    nodes.erase(it);
+
+    if (nodes.empty()) {
+      focused_node_id = -1;
+      return true;
+    }
+    if (nodes.size() == 1 && nodes[0]->type == LEAF) {
+      nodes[0]->type = ROOT;
+    }
+    if (was_focused) {
+      focused_node_id = -1;
+      for (const auto &remaining : nodes) {
+        if (remaining->type == LEAF || remaining->type == ROOT) {
+          focused_node_id = remaining->node_id;
+          break;
+        }
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
 Node *TilingManager::new_pane(int term_id) {
   const int pane_id = next_pane_id();
   ++next_id;
@@ -132,48 +168,56 @@ std::vector<PaneLayout> TilingManager::compute_layout(Rect screen) {
     return layouts;
   }
 
-  if (leaves.size() == 2) {
-    const int left_w = screen.w / 2;
-    const int right_w = screen.w - left_w;
-    Rect left_rect{.x = screen.x, .y = screen.y, .w = left_w, .h = screen.h};
-    Rect right_rect{
-        .x = screen.x + left_w, .y = screen.y, .w = right_w, .h = screen.h};
+  std::function<void(size_t, size_t, Rect)> layout_range =
+      [&](size_t begin, size_t end, Rect rect) {
+        const size_t count = end - begin;
+        if (count == 0) {
+          return;
+        }
+        if (count == 1) {
+          LeafNode *leaf = leaves[begin];
+          layouts.push_back(PaneLayout{
+              .pane_id = leaf->pane_id,
+              .term_id = leaf->term_id,
+              .rect = rect,
+              .focused = (leaf->node_id == focused_node_id),
+          });
+          return;
+        }
 
-    LeafNode *left = leaves[0];
-    LeafNode *right = leaves[1];
+        bool split_vertical = rect.w >= rect.h;
+        if (split_vertical && rect.w < 2) {
+          split_vertical = false;
+        } else if (!split_vertical && rect.h < 2) {
+          split_vertical = true;
+        }
 
-    layouts.push_back(PaneLayout{
-        .pane_id = left->pane_id,
-        .term_id = left->term_id,
-        .rect = left_rect,
-        .focused = (left->node_id == focused_node_id),
-    });
-    layouts.push_back(PaneLayout{
-        .pane_id = right->pane_id,
-        .term_id = right->term_id,
-        .rect = right_rect,
-        .focused = (right->node_id == focused_node_id),
-    });
-    return layouts;
-  }
+        const size_t left_count = count / 2;
+        if (split_vertical) {
+          int left_w = static_cast<int>((static_cast<long long>(rect.w) *
+                                         static_cast<long long>(left_count)) /
+                                        static_cast<long long>(count));
+          left_w = std::max(1, std::min(left_w, rect.w - 1));
+          Rect left{.x = rect.x, .y = rect.y, .w = left_w, .h = rect.h};
+          Rect right{
+              .x = rect.x + left_w, .y = rect.y, .w = rect.w - left_w, .h = rect.h};
+          layout_range(begin, begin + left_count, left);
+          layout_range(begin + left_count, end, right);
+          return;
+        }
 
-  // Temporary fallback: evenly divide width into vertical columns.
-  const int cols = static_cast<int>(leaves.size());
-  int x = screen.x;
-  for (int i = 0; i < cols; ++i) {
-    const int remaining = screen.x + screen.w - x;
-    const int remaining_cols = cols - i;
-    const int col_w = remaining / remaining_cols;
-    Rect rect{.x = x, .y = screen.y, .w = col_w, .h = screen.h};
-    LeafNode *leaf = leaves[static_cast<size_t>(i)];
-    layouts.push_back(PaneLayout{
-        .pane_id = leaf->pane_id,
-        .term_id = leaf->term_id,
-        .rect = rect,
-        .focused = (leaf->node_id == focused_node_id),
-    });
-    x += col_w;
-  }
+        int top_h = static_cast<int>((static_cast<long long>(rect.h) *
+                                      static_cast<long long>(left_count)) /
+                                     static_cast<long long>(count));
+        top_h = std::max(1, std::min(top_h, rect.h - 1));
+        Rect top{.x = rect.x, .y = rect.y, .w = rect.w, .h = top_h};
+        Rect bottom{
+            .x = rect.x, .y = rect.y + top_h, .w = rect.w, .h = rect.h - top_h};
+        layout_range(begin, begin + left_count, top);
+        layout_range(begin + left_count, end, bottom);
+      };
+
+  layout_range(0, leaves.size(), screen);
 
   return layouts;
 }

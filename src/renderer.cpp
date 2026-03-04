@@ -131,9 +131,9 @@ Renderer::Renderer()
   }
 
   initscr();
-  cbreak();
+  raw();
   noecho();
-  keypad(stdscr, TRUE);
+  keypad(stdscr, FALSE);
   curs_set(0);
   getmaxyx(stdscr, screeny, screenx);
   if (has_colors()) {

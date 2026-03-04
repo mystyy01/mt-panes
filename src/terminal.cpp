@@ -109,6 +109,25 @@ bool TerminalManager::close_terminal(int t_id){
     }
     return false;
 }
+std::vector<int> TerminalManager::collect_exited_terminals() {
+    std::vector<int> exited;
+    for (auto it = terminals.begin(); it != terminals.end();) {
+        int status = 0;
+        pid_t rc = waitpid(it->pid, &status, WNOHANG);
+        if (rc == 0) {
+            ++it;
+            continue;
+        }
+        if (rc == it->pid || (rc < 0 && errno == ECHILD)) {
+            exited.push_back(it->term_id);
+            it->close_term();
+            it = terminals.erase(it);
+            continue;
+        }
+        ++it;
+    }
+    return exited;
+}
 Terminal* TerminalManager::get_term(int t_id){
     // return terminal object from id
     for (auto &term : terminals) {

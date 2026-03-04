@@ -18,6 +18,7 @@ public:
   bool focus_next();
   bool focus_prev();
   int close_focused_pane();
+  bool close_pane_by_term_id(int term_id);
   const std::vector<std::unique_ptr<Node>> &get_nodes() const;
   std::vector<PaneLayout> compute_layout(Rect screen);
 
