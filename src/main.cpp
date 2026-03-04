@@ -1,6 +1,8 @@
 #include "types.hpp"
 #include <algorithm>
 #include <cctype>
+#include <clocale>
+#include <cstdlib>
 #include <curses.h>
 #include <string>
 #include <unordered_map>
@@ -59,6 +61,13 @@ bool is_backspace(int ch) {
 } // namespace
 
 int main() {
+  std::setlocale(LC_ALL, "");
+
+  if (const char *outer_term = std::getenv("TERM");
+      outer_term != nullptr && outer_term[0] != '\0') {
+    setenv("MTPANES_OUTER_TERM", outer_term, 1);
+  }
+
   Renderer r;
   TilingManager tile_m;
   TerminalManager term_m;
@@ -83,7 +92,7 @@ int main() {
     return true;
   };
 
-  if (!new_pane_with_terminal() || !new_pane_with_terminal()) {
+  if (!new_pane_with_terminal()) {
     return -1;
   }
 
@@ -180,6 +189,10 @@ int main() {
       const int inner_w = std::max(1, layout.rect.w - 2);
       const int inner_h = std::max(1, layout.rect.h - 2);
       emulators[layout.term_id].resize(inner_w, inner_h);
+      Terminal *term = term_m.get_term(layout.term_id);
+      if (term) {
+        term->set_size(inner_w, inner_h);
+      }
     }
 
     std::vector<Terminal> *terms = term_m.get_all_terminals();
@@ -188,7 +201,12 @@ int main() {
       if (out.empty()) {
         continue;
       }
-      emulators[term.term_id].feed(out);
+      auto &emu = emulators[term.term_id];
+      emu.feed(out);
+      std::string reply = emu.take_response();
+      if (!reply.empty()) {
+        term.send_cmd(reply);
+      }
     }
 
     r.render(layouts, emulators, mode == UiMode::INSERT);

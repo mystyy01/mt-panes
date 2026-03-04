@@ -1,4 +1,5 @@
 #include "terminal.hpp"
+#include <cstdlib>
 #include <fcntl.h>
 #include <signal.h>
 
@@ -43,6 +44,12 @@ std::string Terminal::read_available() {
 void Terminal::send_cmd(std::string cmd){
     write(master_fd, cmd.data(), cmd.size());
 };
+void Terminal::set_size(int cols, int rows){
+    struct winsize ws{};
+    ws.ws_col = static_cast<unsigned short>(cols);
+    ws.ws_row = static_cast<unsigned short>(rows);
+    ioctl(master_fd, TIOCSWINSZ, &ws);
+}
 void Terminal::close_term(){
     close(master_fd);
 }
@@ -61,8 +68,21 @@ int TerminalManager::new_terminal(){
         return -1;
     }
     if (pid == 0) {
-        // child
-        execl("/bin/bash", "bash", (char*)nullptr);
+        // child – use the same shell that launched this program
+        const char *outer_term = getenv("MTPANES_OUTER_TERM");
+        if (outer_term != nullptr && outer_term[0] != '\0') {
+            setenv("TERM", outer_term, 1);
+        }
+        const char *color_term = getenv("COLORTERM");
+        if (color_term == nullptr || color_term[0] == '\0') {
+            setenv("COLORTERM", "truecolor", 1);
+        }
+
+        const char *shell = getenv("SHELL");
+        if (!shell || shell[0] == '\0') {
+            shell = "/bin/sh";
+        }
+        execl(shell, shell, (char*)nullptr);
         perror("execl");
         _exit(127);
     }

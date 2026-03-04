@@ -21,6 +21,7 @@ public:
     void update_term();
     std::string read_available();
     void send_cmd(std::string cmd);
+    void set_size(int cols, int rows);
     void close_term();
 };
 

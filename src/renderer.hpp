@@ -3,6 +3,7 @@
 #include "terminal_emulator.hpp"
 #include "types.hpp"
 #include <cstdint>
+#include <array>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -36,7 +37,10 @@ private:
   void draw_rect(Rect rect, bool focused);
   void draw_emulator(Rect rect, const TerminalEmulator &emulator,
                      bool show_cursor);
-  short ensure_color_pair(int fg, int bg);
-  std::unordered_map<int64_t, short> color_pairs;
-  short next_color_pair;
+  int ensure_color_pair(int fg, int bg);
+  std::unordered_map<uint64_t, int> color_pairs;
+  int next_color_pair;
+  int max_color_pairs;
+  bool direct_rgb_mode;
+  std::array<int, 16> ansi_palette_rgb;
 };
